@@ -1,0 +1,79 @@
+//@version=6
+strategy("同周期动能波段策略 (EMA144+MA144 叠加动能止损)", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+// ==========================================
+// 1. 参数设置 (Inputs)
+// ==========================================
+// 在 v6 中，输入参数的定义方式依然保持不变，非常稳定
+int len_trend = input.int(144, title="波段判定周期 (EMA/MA)")
+int len_fast = input.int(19, title="入场快线 (MA19)")
+int len_slow = input.int(53, title="入场慢线 (MA53)")
+
+// ==========================================
+// 2. 指标计算 (Calculations)
+// ==========================================
+// 计算大周期牛熊判定线
+float ema144 = ta.ema(close, len_trend)
+float ma144 = ta.sma(close, len_trend)
+
+// 计算小周期信号线
+float ma19 = ta.sma(close, len_fast)
+float ma53 = ta.sma(close, len_slow)
+
+// ==========================================
+// 3. 逻辑判定 (Logic)
+// ==========================================
+// 波段牛熊状态判定：EMA在MA之上为牛，反之为熊
+bool isBull = ema144 > ma144
+bool isBear = ema144 < ma144
+
+// 信号触发判定：MA19与MA53的交叉状态
+bool crossUp = ta.crossover(ma19, ma53)
+bool crossDown = ta.crossunder(ma19, ma53)
+
+// 有效进场信号：大级别顺势 + 小级别交叉
+bool validLong = isBull and crossUp
+bool validShort = isBear and crossDown
+
+// ==========================================
+// 4. 执行交易 (Execution)
+// ==========================================
+// 进场逻辑
+if validLong
+    strategy.entry("Long", strategy.long, comment="多头开仓")
+
+if validShort
+    strategy.entry("Short", strategy.short, comment="空头开仓")
+
+// 出场（止盈/止损）逻辑：无视大级别环境，只看动能衰竭
+// 当多头持仓时，遇到19下穿53，立刻平仓多单
+if strategy.position_size > 0 and crossDown
+    strategy.close("Long", comment="多头平仓(动能衰竭)")
+
+// 当空头持仓时，遇到19上穿53，立刻平仓空单
+if strategy.position_size < 0 and crossUp
+    strategy.close("Short", comment="空头平仓(动能衰竭)")
+
+// ==========================================
+// 5. 图表可视化 (Visualization)
+// ==========================================
+// 绘制144周期的主趋势线
+p_ema = plot(ema144, color=color.new(color.orange, 0), linewidth=2, title="EMA 144")
+p_ma = plot(ma144, color=color.new(color.blue, 0), linewidth=2, title="MA 144")
+
+// 填充牛熊动能带 (v6 中 color.new 依然是处理透明度的最佳实践)
+color fillColor = isBull ? color.new(color.green, 85) : color.new(color.red, 85)
+fill(p_ema, p_ma, color=fillColor, title="牛熊动能带")
+
+// 绘制19和53信号线
+plot(ma19, color=color.new(color.fuchsia, 0), title="MA 19")
+plot(ma53, color=color.new(color.aqua, 0), title="MA 53")
+
+// 标记进出场点位
+plotshape(validLong, title="多头进场", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small)
+plotshape(validShort, title="空头进场", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small)
+
+// 标记平仓点位（黑叉）
+bool isLongExit = strategy.position_size > 0 and crossDown
+bool isShortExit = strategy.position_size < 0 and crossUp
+plotshape(isLongExit or isShortExit, title="平仓离场", style=shape.xcross, location=location.absolute, color=color.yellow, size=size.tiny)
